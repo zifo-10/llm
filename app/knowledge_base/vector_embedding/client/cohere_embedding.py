@@ -1,5 +1,5 @@
 import cohere
-from knowledge_base.vector_embedding.vector_embedding import VectorEmbedding
+from app.knowledge_base.vector_embedding.vector_embedding import VectorEmbedding
 
 
 class CohereEmbeddingClient(VectorEmbedding):

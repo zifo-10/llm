@@ -1,12 +1,12 @@
-from sentence_transformers import SentenceTransformer
-from knowledge_base.vector_embedding.vector_embedding import VectorEmbedding
+# from sentence_transformers import SentenceTransformer
+from app.knowledge_base.vector_embedding.vector_embedding import VectorEmbedding
 
 class HuggingFaceEmbeddingClient(VectorEmbedding):
     def __init__(self, model: str = "Qwen/Qwen3-Embedding-0.6B") -> None:
         """
         Initializes the HuggingFace embedding client with the provided model.
         """
-        self.client = SentenceTransformer(model)
+        # self.client = SentenceTransformer(model)
 
     def embed(self, text: str) -> list[float]:
         """

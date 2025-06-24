@@ -10,7 +10,7 @@ from qdrant_client.http.models import (
     ScoredPoint
 )
 
-from knowledge_base.vector_database.vector_database import VectorDatabase
+from app.knowledge_base.vector_database.vector_database import VectorDatabase
 
 
 class QdrantDBClient(VectorDatabase):
@@ -38,7 +38,6 @@ class QdrantDBClient(VectorDatabase):
                     metadata: dict = None,
                     ) -> UpdateResult:
         try:
-            print('collection name', collection_name)
             result = self.client.upsert(
                 collection_name=collection_name,
                 points=[models.PointStruct(
@@ -48,19 +47,20 @@ class QdrantDBClient(VectorDatabase):
                 )
                 ]
             )
-            print('results************', result)
             return result
         except Exception as e:
             raise e
 
     def vector_search(
-            self, collection_name: str, query_vector: list[float], top_k: int = 10
+            self, collection_name: str, query_vector: list[float], top_k: int = 10,
+            score_threshold: float = None
     ) -> List[ScoredPoint]:
         try:
             result = self.client.search(
                 collection_name=collection_name,
                 query_vector=query_vector,
-                limit=top_k
+                limit=top_k,
+                score_threshold=score_threshold,
             )
             return result
         except Exception as e:

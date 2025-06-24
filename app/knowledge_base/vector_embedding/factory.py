@@ -1,6 +1,6 @@
-from knowledge_base.vector_embedding.client.cohere_embedding import CohereEmbeddingClient
-from knowledge_base.vector_embedding.client.huggingface_embedding import HuggingFaceEmbeddingClient
-from knowledge_base.vector_embedding.vector_embedding import VectorEmbedding
+from app.knowledge_base.vector_embedding.client.cohere_embedding import CohereEmbeddingClient
+from app.knowledge_base.vector_embedding.client.huggingface_embedding import HuggingFaceEmbeddingClient
+from app.knowledge_base.vector_embedding.vector_embedding import VectorEmbedding
 
 
 class EmbedEnum:

@@ -1,5 +1,5 @@
-from knowledge_base.vector_database.client.qdrant import QdrantDBClient
-from knowledge_base.vector_database.vector_database import VectorDatabase
+from app.knowledge_base.vector_database.client.qdrant import QdrantDBClient
+from app.knowledge_base.vector_database.vector_database import VectorDatabase
 
 
 class VectorDatabaseEnum:

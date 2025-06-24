@@ -23,7 +23,8 @@ class VectorDatabase(ABC):
         pass
 
     @abstractmethod
-    def vector_search(self, collection_name: str, query_vector: list[float], top_k: int = 10) -> list[Any]:
+    def vector_search(self, collection_name: str, query_vector: list[float],
+                      top_k: int = 10, score_threshold: float = None) -> list[Any]:
         """
         Search for similar vectors in the database.
 
@@ -31,6 +32,7 @@ class VectorDatabase(ABC):
             collection_name (str): The name of the collection to search in.
             query_vector (list[float]): The vector to search for.
             top_k (int): The number of top results to return.
+            score_threshold (float): Optional threshold for filtering results based on similarity score.
 
         Returns:
             list[dict]: A list of dictionaries containing the matching vectors and their metadata.
