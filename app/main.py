@@ -1,10 +1,9 @@
-import io
 import logging
 from datetime import datetime
 
-import pandas as pd
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from app.constant import Constant
 from app.container import knowledge_base, llm_client
@@ -18,42 +17,36 @@ logger = logging.getLogger(__name__)
 app = FastAPI()
 
 
-@app.post("/knowledge/bulk-upload")
-async def bulk_upload_knowledge(file: UploadFile = File(...)):
+class KnowledgeItem(BaseModel):
+    question: str = Field(..., description="The question to be answered")
+    title: str = Field(..., description="Title of the knowledge item")
+    answer: str = Field(..., description="The answer to the question")
+    source: str = Field(..., description="Source of the knowledge item")
+    published_at: str = Field(..., description="Publication date of the knowledge item")
+
+
+@app.post("/knowledge")
+async def bulk_upload_knowledge(knowledge_request: KnowledgeItem):
     try:
-        # Load CSV into DataFrame
-        contents = await file.read()
+        query_text = (
+            f"العنوان: {knowledge_request.title}\n"
+            f"السؤال: {knowledge_request.question}\n"
+            f"الإجابة: {knowledge_request.answer}"
+        )
 
-        df = pd.read_csv(io.StringIO(contents.decode("utf-8")))
-
-        # Track insert results
-        results = []
-
-        for _, row in df.iterrows():
-            try:
-                query_text = (
-                    f"السؤال: {row['question']}\n"
-                    f"العنوان: {row['title']}\n"
-                    f"الإجابة: {row['answer']}"
-                )
-
-                payload = {
-                    "title": row.get('title', 'No Title'),
-                    "question": row.get('question', 'No Question'),
-                    "answer": row.get('answer', 'No Answer'),
-                    "source": row.get('source', None),
-                    "published_at": row.get('published_at', None),
-                }
-                # Add to knowledge base
-                knowledge_base.add_knowledge(
-                    query_text=query_text,
-                    payload=payload
-                )
-                results.append({"title": row['title'], "status": "success"})
-            except Exception as e:
-                results.append({"title": row.get('title', 'Unknown'), "status": "failed", "error": str(e)})
-
-        return {"message": "Processing completed.", "results": results}
+        payload = {
+            "title": knowledge_request.title,
+            "question": knowledge_request.question,
+            "answer": knowledge_request.answer,
+            "source": knowledge_request.source,
+            "published_at": knowledge_request.published_at,
+        }
+        # Add to knowledge base
+        knowledge_base.add_knowledge(
+            query_text=query_text,
+            payload=payload
+        )
+        return {"message": "Processing completed."}
 
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
