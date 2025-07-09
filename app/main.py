@@ -83,15 +83,22 @@ async def chat_with_llm(query: str, temperature: float = 0.7, chat_id: str = Non
             "content": Constant.SYSTEM_PROMPT
         }]
 
+        search_query = query
+
         if chat_id:
             history = knowledge_base.get_messages(chat_id)
+
             if history:
                 messages.extend(history[-4:])
+                # Extract last two user messages from history
+                user_msgs = [msg['content'] for msg in history if msg['role'] == 'user']
+                last_two = user_msgs[-2:] if len(user_msgs) >= 2 else user_msgs
+                # Merge last two with current query
+                search_query = "\n".join(last_two + [query])
         else:
             chat_id = str(knowledge_base.add_chat())
             logger.info(f"New chat started with ID: {chat_id}")
-
-        knowledge = knowledge_base.get_knowledge(query_text=query, top_k=10, score_threshold=0.4)
+        knowledge = knowledge_base.get_knowledge(query_text=search_query, top_k=15, score_threshold=0.4)
         knowledge_list = [item.payload for item in knowledge] if knowledge else []
 
         user_query = {

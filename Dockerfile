@@ -1,30 +1,31 @@
+# Use a lightweight official Python base image
 FROM python:3.11-slim
 
-# Set working directory inside the container
+# Set working directory in the container
 WORKDIR /app
 
-# Install system dependencies
+# Install OS-level build dependencies (if you need them)
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Prevent Python from writing .pyc files and buffering stdout
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
-# Copy dependency list and install Python packages
+# Copy only requirements first to leverage Docker cache
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# Copy the entire project into the container
+# Upgrade pip & install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of your application code
 COPY . .
 
-# Optional: set PYTHONPATH to use absolute imports like `from app.knowledge_base...`
+# Optional: set PYTHONPATH to help with absolute imports
 ENV PYTHONPATH=/app
 
 # Expose FastAPI default port
 EXPOSE 8000
 
-# Run the FastAPI app (note: `app.main:app`, not `main:app`)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7001"]
+# Run the FastAPI app
+# Update `app.main:app` if your entry file or variable name is different!
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7001"]
