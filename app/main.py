@@ -1,7 +1,9 @@
 import logging
 from datetime import datetime
+from typing import List, Optional
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -16,12 +18,21 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class KnowledgeItem(BaseModel):
     question: str = Field(..., description="The question to be answered")
     title: str = Field(..., description="Title of the knowledge item")
     answer: str = Field(..., description="The answer to the question")
-    source: str = Field(..., description="Source of the knowledge item")
+    source: Optional[List[str]] = Field(None, description="Source of the knowledge item")
     published_at: str = Field(..., description="Publication date of the knowledge item")
 
 
@@ -74,7 +85,8 @@ async def search_knowledge(query: str, top_k: int = 5, score_threshold: float = 
 
 
 @app.post("/chat")
-async def chat_with_llm(query: str, temperature: float = 0.7, chat_id: str = None):
+async def chat_with_llm(query: str, temperature: float = 0.7, chat_id: str = None,
+                        top_k: int = 10, score_threshold: float = 0.4):
     try:
         logger.info(f"Chat started. Query: {query} | Chat ID: {chat_id}")
 
@@ -98,7 +110,7 @@ async def chat_with_llm(query: str, temperature: float = 0.7, chat_id: str = Non
         else:
             chat_id = str(knowledge_base.add_chat())
             logger.info(f"New chat started with ID: {chat_id}")
-        knowledge = knowledge_base.get_knowledge(query_text=search_query, top_k=15, score_threshold=0.4)
+        knowledge = knowledge_base.get_knowledge(query_text=search_query, top_k=top_k, score_threshold=score_threshold)
         knowledge_list = [item.payload for item in knowledge] if knowledge else []
 
         user_query = {
