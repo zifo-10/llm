@@ -85,11 +85,17 @@ async def search_knowledge(query: str, top_k: int = 5, score_threshold: float = 
 
 
 @app.post("/chat")
-async def chat_with_llm(query: str, temperature: float = 0.7, chat_id: str = None,
-                        top_k: int = 10, score_threshold: float = 0.4):
+async def chat_with_llm(
+    query: str,
+    temperature: float = 0.7,
+    chat_id: str = None,
+    top_k: int = 5,
+    score_threshold: float = 0.4
+):
     try:
         logger.info(f"Chat started. Query: {query} | Chat ID: {chat_id}")
 
+        # Start messages with system prompt
         messages = [{
             "role": "system",
             "content": Constant.SYSTEM_PROMPT
@@ -97,38 +103,66 @@ async def chat_with_llm(query: str, temperature: float = 0.7, chat_id: str = Non
 
         search_query = query
 
+        # If there is chat history, use it to build context
         if chat_id:
             history = knowledge_base.get_messages(chat_id)
 
             if history:
-                messages.extend(history[-4:])
-                # Extract last two user messages from history
+                messages.extend(history[-4:])  # Add recent messages
+
+                # Collect last two user messages
                 user_msgs = [msg['content'] for msg in history if msg['role'] == 'user']
                 last_two = user_msgs[-2:] if len(user_msgs) >= 2 else user_msgs
-                # Merge last two with current query
+
+                # Combine with current query
                 search_query = "\n".join(last_two + [query])
         else:
+            # Create new chat session
             chat_id = str(knowledge_base.add_chat())
             logger.info(f"New chat started with ID: {chat_id}")
-        knowledge = knowledge_base.get_knowledge(query_text=search_query, top_k=top_k, score_threshold=score_threshold)
-        knowledge_list = [item.payload for item in knowledge] if knowledge else []
 
+        # Get relevant knowledge
+        knowledge = knowledge_base.get_knowledge(
+            query_text=search_query,
+            top_k=top_k,
+            score_threshold=score_threshold
+        )
+
+        # Separate knowledge and sources
+        knowledge_list = []
+        sources_set = set()
+
+        if knowledge:
+            for item in knowledge:
+                payload = item.payload.copy()
+                sources = payload.get("source", [])
+                sources_set.update(sources)
+                payload.pop("source", None)
+                knowledge_list.append(payload)
+
+        # Convert set back to list
+        sources_list = list(sources_set)
+
+        # Construct user message for LLM
         user_query = {
             "role": "user",
             "content": f"##Knowledge: {knowledge_list}\n\n##User Query: {query}"
         }
         messages.append(user_query)
 
+        # Call LLM
         response = llm_client.chat(messages=messages, temperature=temperature)
         answer = response["choices"][0]["message"]["content"]
 
+        # Save messages to history
         now = datetime.now().isoformat()
         knowledge_base.add_message(chat_id=chat_id, message={"role": "user", "content": query, "time": now})
         knowledge_base.add_message(chat_id=chat_id, message={"role": "assistant", "content": answer, "time": now})
 
         logger.info(f"Chat completed for chat_id={chat_id}")
-        return {"chat_id": chat_id, "answer": answer}
+        return {"chat_id": chat_id, "answer": answer, "sources": sources_list}
 
     except Exception as e:
         logger.exception("LLM chat failed")
         return JSONResponse(status_code=400, content={"error": str(e)})
+
