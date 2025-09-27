@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from typing import List, Optional
+from urllib.parse import urlparse, urlunparse
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -84,83 +85,117 @@ async def search_knowledge(query: str, top_k: int = 5, score_threshold: float = 
         return JSONResponse(status_code=400, content={"error": str(e)})
 
 
+def normalize_url(url: str) -> str:
+    parsed = urlparse(url)
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+
+
 @app.post("/chat")
 async def chat_with_llm(
-    query: str,
-    temperature: float = 0.7,
-    chat_id: str = None,
-    top_k: int = 5,
-    score_threshold: float = 0.4
+        query: str,
+        temperature: float = 0.2,
+        chat_id: str = None,
+        top_k: int = 10,
+        score_threshold: float = 0.4
 ):
     try:
         logger.info(f"Chat started. Query: {query} | Chat ID: {chat_id}")
 
-        # Start messages with system prompt
+        # System prompt initialization
         messages = [{
             "role": "system",
             "content": Constant.SYSTEM_PROMPT
         }]
+        fine_tuned_messages = [{
+            "role": "system",
+            "content": Constant.FINE_TUNED_PROMPT
+        }]
 
         search_query = query
 
-        # If there is chat history, use it to build context
+        # Use history if available
         if chat_id:
             history = knowledge_base.get_messages(chat_id)
-
             if history:
-                messages.extend(history[-4:])  # Add recent messages
+                # Keep last 4 messages in context
+                messages.extend(history[-4:])
+                fine_tuned_messages.extend(history[-4:])
 
-                # Collect last two user messages
+                # Use last two user queries + current query for vector search
                 user_msgs = [msg['content'] for msg in history if msg['role'] == 'user']
                 last_two = user_msgs[-2:] if len(user_msgs) >= 2 else user_msgs
-
-                # Combine with current query
                 search_query = "\n".join(last_two + [query])
         else:
-            # Create new chat session
             chat_id = str(knowledge_base.add_chat())
             logger.info(f"New chat started with ID: {chat_id}")
 
-        # Get relevant knowledge
+        # --- Knowledge search ---
         knowledge = knowledge_base.get_knowledge(
             query_text=search_query,
             top_k=top_k,
             score_threshold=score_threshold
         )
 
-        # Separate knowledge and sources
         knowledge_list = []
         sources_set = set()
 
         if knowledge:
             for item in knowledge:
-                payload = item.payload.copy()
-                sources = payload.get("source", [])
-                sources_set.update(sources)
+                try:
+                    payload = item.payload.copy()
+                except Exception:
+                    continue  # skip broken payloads
+
+                # Defensive: source can be missing, None, or a single string
+                raw_sources = payload.get("source", [])
+                if raw_sources is None:
+                    raw_sources = []
+                elif isinstance(raw_sources, str):
+                    raw_sources = [raw_sources]
+
+                normalized_sources = [normalize_url(src) for src in raw_sources if src]
+                sources_set.update(normalized_sources)
+
+                # Don’t duplicate source inside knowledge payload
                 payload.pop("source", None)
                 knowledge_list.append(payload)
 
-        # Convert set back to list
-        sources_list = list(sources_set)
+        sources_list = sorted(sources_set)
 
-        # Construct user message for LLM
+        # --- Final user query with retrieved knowledge ---
         user_query = {
             "role": "user",
             "content": f"##Knowledge: {knowledge_list}\n\n##User Query: {query}"
         }
         messages.append(user_query)
 
-        # Call LLM
+        # --- LLM call ---
         response = llm_client.chat(messages=messages, temperature=temperature)
         answer = response["choices"][0]["message"]["content"]
 
-        # Save messages to history
+        # --- Check LLM response ---
+        query_with_answer = {
+            "role": "user",
+            "content": f"Here is the knowledge: {knowledge_list}\n\nHere is the user query: {query}\n\nHere is the draft answer: {answer}\n\nPlease refine the draft answer according to the rules."
+        }
+        fine_tuned_messages.append(query_with_answer)
+        fine_tuned_llm = llm_client.chat(messages=fine_tuned_messages, temperature=temperature)
+        fine_tuned_answer = fine_tuned_llm["choices"][0]["message"]["content"]
+
+        # --- Save conversation ---
         now = datetime.now().isoformat()
         knowledge_base.add_message(chat_id=chat_id, message={"role": "user", "content": query, "time": now})
-        knowledge_base.add_message(chat_id=chat_id, message={"role": "assistant", "content": answer, "time": now})
+        knowledge_base.add_message(chat_id=chat_id, message={"role": "assistant", "content": fine_tuned_answer, "time": now})
 
         logger.info(f"Chat completed for chat_id={chat_id}")
-        return {"chat_id": chat_id, "answer": answer, "sources": sources_list}
+
+        return {
+            "message": messages,
+            "chat_id": chat_id,
+            "answer": fine_tuned_answer,
+            "sources": sources_list,
+            "knowledge_used": knowledge_list
+        }
 
     except Exception as e:
         logger.exception("LLM chat failed")
