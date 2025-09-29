@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -104,11 +105,11 @@ async def chat_with_llm(
         # System prompt initialization
         messages = [{
             "role": "system",
-            "content": Constant.SYSTEM_PROMPT
+            "content": Constant.DRAFTER_PROMPT
         }]
         fine_tuned_messages = [{
             "role": "system",
-            "content": Constant.FINE_TUNED_PROMPT
+            "content": Constant.VERIFIER_PROMPT
         }]
 
         search_query = query
@@ -162,39 +163,71 @@ async def chat_with_llm(
 
         sources_list = sorted(sources_set)
 
-        # --- Final user query with retrieved knowledge ---
+        # --- Prepare context chunks for drafter ---
+        context_chunks = []
+        for i, item in enumerate(knowledge_list):
+            context_chunks.append({
+                "id": f"c{i+1}",
+                "text": f"Title: {item.get('title', '')}\nQuestion: {item.get('question', '')}\nAnswer: {item.get('answer', '')}"
+            })
+
+        # --- Final user query with retrieved knowledge for drafter ---
         user_query = {
             "role": "user",
-            "content": f"##Knowledge: {knowledge_list}\n\n##User Query: {query}"
+            "content": f"User message: {query}\n\nContext Chunks: {context_chunks}"
         }
         messages.append(user_query)
 
-        # --- LLM call ---
+        # --- LLM call (Drafter) ---
         response = llm_client.chat(messages=messages, temperature=temperature)
-        answer = response["choices"][0]["message"]["content"]
+        drafter_response = response["choices"][0]["message"]["content"]
+        
+        # Parse drafter JSON response
+        try:
+            drafter_json = json.loads(drafter_response)
+            draft_answer = drafter_json.get("answer", "")
+            draft_meta = drafter_json.get("meta", {})
+        except json.JSONDecodeError:
+            logger.warning("Drafter response is not valid JSON, using as plain text")
+            draft_answer = drafter_response
+            draft_meta = {}
 
-        # --- Check LLM response ---
-        query_with_answer = {
+        # --- Verifier call ---
+        verifier_query = {
             "role": "user",
-            "content": f"Here is the knowledge: {knowledge_list}\n\nHere is the user query: {query}\n\nHere is the draft answer: {answer}\n\nPlease refine the draft answer according to the rules."
+            "content": f"User message: {query}\n\nContext Chunks: {context_chunks}\n\nDrafter JSON: {json.dumps({'answer': draft_answer, 'meta': draft_meta})}"
         }
-        fine_tuned_messages.append(query_with_answer)
+        fine_tuned_messages.append(verifier_query)
         fine_tuned_llm = llm_client.chat(messages=fine_tuned_messages, temperature=temperature)
-        fine_tuned_answer = fine_tuned_llm["choices"][0]["message"]["content"]
+        verifier_response = fine_tuned_llm["choices"][0]["message"]["content"]
+        
+        # Parse verifier JSON response
+        try:
+            verifier_json = json.loads(verifier_response)
+            final_answer = verifier_json.get("final_answer", draft_answer)
+            verifier_status = verifier_json.get("status", "approve")
+            verifier_meta = verifier_json.get("verifier_meta", {})
+        except json.JSONDecodeError:
+            logger.warning("Verifier response is not valid JSON, using draft answer")
+            final_answer = draft_answer
+            verifier_status = "approve"
+            verifier_meta = {}
 
         # --- Save conversation ---
         now = datetime.now().isoformat()
         knowledge_base.add_message(chat_id=chat_id, message={"role": "user", "content": query, "time": now})
-        knowledge_base.add_message(chat_id=chat_id, message={"role": "assistant", "content": fine_tuned_answer, "time": now})
+        knowledge_base.add_message(chat_id=chat_id, message={"role": "assistant", "content": final_answer, "time": now})
 
         logger.info(f"Chat completed for chat_id={chat_id}")
 
         return {
-            "message": messages,
             "chat_id": chat_id,
-            "answer": fine_tuned_answer,
+            "answer": final_answer,
             "sources": sources_list,
-            "knowledge_used": knowledge_list
+            "knowledge_used": knowledge_list,
+            "drafter_meta": draft_meta,
+            "verifier_status": verifier_status,
+            "verifier_meta": verifier_meta
         }
 
     except Exception as e:
