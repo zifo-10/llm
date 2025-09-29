@@ -163,71 +163,62 @@ async def chat_with_llm(
 
         sources_list = sorted(sources_set)
 
-        # --- Prepare context chunks for drafter ---
-        context_chunks = []
-        for i, item in enumerate(knowledge_list):
-            context_chunks.append({
-                "id": f"c{i+1}",
-                "text": f"Title: {item.get('title', '')}\nQuestion: {item.get('question', '')}\nAnswer: {item.get('answer', '')}"
-            })
-
-        # --- Final user query with retrieved knowledge for drafter ---
+        # --- Final user query with retrieved knowledge ---
         user_query = {
             "role": "user",
-            "content": f"User message: {query}\n\nContext Chunks: {context_chunks}"
+            "content": f"##Knowledge: {knowledge_list}\n\n##User Query: {query}"
         }
         messages.append(user_query)
 
-        # --- LLM call (Drafter) ---
+        # --- LLM call ---
         response = llm_client.chat(messages=messages, temperature=temperature)
-        drafter_response = response["choices"][0]["message"]["content"]
-        
-        # Parse drafter JSON response
-        try:
-            drafter_json = json.loads(drafter_response)
-            draft_answer = drafter_json.get("answer", "")
-            draft_meta = drafter_json.get("meta", {})
-        except json.JSONDecodeError:
-            logger.warning("Drafter response is not valid JSON, using as plain text")
-            draft_answer = drafter_response
-            draft_meta = {}
+        answer = response["choices"][0]["message"]["content"]
 
-        # --- Verifier call ---
-        verifier_query = {
-            "role": "user",
-            "content": f"User message: {query}\n\nContext Chunks: {context_chunks}\n\nDrafter JSON: {json.dumps({'answer': draft_answer, 'meta': draft_meta})}"
-        }
-        fine_tuned_messages.append(verifier_query)
-        fine_tuned_llm = llm_client.chat(messages=fine_tuned_messages, temperature=temperature)
-        verifier_response = fine_tuned_llm["choices"][0]["message"]["content"]
+        # --- Check LLM response ---
+        # Determine user language (simple heuristic)
+        user_language = "ar" if any('\u0600' <= char <= '\u06FF' for char in query) else "en"
         
-        # Parse verifier JSON response
+        # Format context blocks for verification
+        context_blocks = [{"id": f"c{i}", "text": str(item)} for i, item in enumerate(knowledge_list)]
+        
+        # Create JSON payload for verification agent
+        verification_payload = {
+            "user_language": user_language,
+            "user_message": query,
+            "context_blocks": context_blocks,
+            "draft_answer": answer
+        }
+        
+        query_with_answer = {
+            "role": "user",
+            "content": json.dumps(verification_payload)
+        }
+        fine_tuned_messages.append(query_with_answer)
+        fine_tuned_llm = llm_client.chat(messages=fine_tuned_messages, temperature=0.1)
+        verification_response = fine_tuned_llm["choices"][0]["message"]["content"]
+        
+        # Parse JSON response from verification agent
         try:
-            verifier_json = json.loads(verifier_response)
-            final_answer = verifier_json.get("final_answer", draft_answer)
-            verifier_status = verifier_json.get("status", "approve")
-            verifier_meta = verifier_json.get("verifier_meta", {})
-        except json.JSONDecodeError:
-            logger.warning("Verifier response is not valid JSON, using draft answer")
-            final_answer = draft_answer
-            verifier_status = "approve"
-            verifier_meta = {}
+            verification_result = json.loads(verification_response)
+            fine_tuned_answer = verification_result["final_answer"]
+            logger.info(f"Verification status: {verification_result.get('status', 'unknown')} - {verification_result.get('reason', 'no reason provided')}")
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Failed to parse verification response: {e}. Using original answer.")
+            fine_tuned_answer = answer
 
         # --- Save conversation ---
         now = datetime.now().isoformat()
         knowledge_base.add_message(chat_id=chat_id, message={"role": "user", "content": query, "time": now})
-        knowledge_base.add_message(chat_id=chat_id, message={"role": "assistant", "content": final_answer, "time": now})
+        knowledge_base.add_message(chat_id=chat_id, message={"role": "assistant", "content": fine_tuned_answer, "time": now})
 
         logger.info(f"Chat completed for chat_id={chat_id}")
 
         return {
+            "message": messages,
             "chat_id": chat_id,
-            "answer": final_answer,
+            "answer": fine_tuned_answer,
             "sources": sources_list,
-            "knowledge_used": knowledge_list,
-            "drafter_meta": draft_meta,
-            "verifier_status": verifier_status,
-            "verifier_meta": verifier_meta
+            "knowledge_used": knowledge_list
         }
 
     except Exception as e:
