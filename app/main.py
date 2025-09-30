@@ -200,4 +200,3 @@ async def chat_with_llm(
     except Exception as e:
         logger.exception("LLM chat failed")
         return JSONResponse(status_code=400, content={"error": str(e)})
-
