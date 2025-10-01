@@ -38,3 +38,17 @@ class VectorDatabase(ABC):
             list[dict]: A list of dictionaries containing the matching vectors and their metadata.
         """
         pass
+
+    @abstractmethod
+    def delete_point(self, collection_name: str, point_id: str):
+        """
+        Delete a vector from the database.
+
+        Args:
+            collection_name (str): The name of the collection where the vector is stored.
+            point_id (str): The unique identifier of the vector to delete.
+
+        Returns:
+            dict: A dictionary containing the result of the deletion operation.
+        """
+        pass

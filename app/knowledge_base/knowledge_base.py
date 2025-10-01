@@ -37,6 +37,17 @@ class KnowledgeBase:
             print(f"Error retrieving knowledge: {e}")
             raise e
 
+    def delete_knowledge_point(self, point_id: str):
+        """
+        Delete a knowledge point from the vector database.
+        """
+        try:
+            result = self.vector_database.delete_point(collection_name="knowledge_base", point_id=point_id)
+            return result
+        except Exception as e:
+            print(f"Error deleting knowledge point: {e}")
+            raise e
+
     def add_chat(self, chat_data: dict = None) -> str:
         """
         Add a chat to the chat database.

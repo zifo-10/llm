@@ -77,10 +77,19 @@ async def search_knowledge(query: str, top_k: int = 5, score_threshold: float = 
             return JSONResponse(status_code=404, content={"message": "No knowledge found."})
         knowledge_list = []
         for item in knowledge:
-            knowledge_list.append(item.payload)
+            knowledge_list.append({"payload": item.payload, "score": item.score, "id": item.id})
 
         return {"knowledge": knowledge_list}
 
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+
+@app.delete("/knowledge/{point_id}")
+async def delete_knowledge_point(point_id: str):
+    try:
+        result = knowledge_base.delete_knowledge_point(point_id=point_id)
+        return {"message": "Knowledge point deleted successfully.", "result": result}
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
 
@@ -185,7 +194,8 @@ async def chat_with_llm(
         # --- Save conversation ---
         now = datetime.now().isoformat()
         knowledge_base.add_message(chat_id=chat_id, message={"role": "user", "content": query, "time": now})
-        knowledge_base.add_message(chat_id=chat_id, message={"role": "assistant", "content": fine_tuned_answer, "time": now})
+        knowledge_base.add_message(chat_id=chat_id,
+                                   message={"role": "assistant", "content": fine_tuned_answer, "time": now})
 
         logger.info(f"Chat completed for chat_id={chat_id}")
 

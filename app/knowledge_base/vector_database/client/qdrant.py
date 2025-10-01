@@ -65,3 +65,15 @@ class QdrantDBClient(VectorDatabase):
             return result
         except Exception as e:
             raise e
+
+    def delete_point(self, collection_name: str, point_id: str) -> UpdateResult:
+        try:
+            result = self.client.delete(
+                collection_name=collection_name,
+                points_selector=models.PointIdsList(
+                    points=[point_id],
+                ),
+            )
+            return result
+        except Exception as e:
+            raise e
